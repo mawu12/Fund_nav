@@ -2,9 +2,11 @@
 __pycache__/
 *.py[cod]
 *$py.class
+.DS_Store
+.agent/
 
 # OS
-.DS_Store
+
 
 # IDE
 .vscode/
