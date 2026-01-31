@@ -2,7 +2,6 @@ streamlit
 pandas
 requests
 lxml
-altairreamlit
-lxml
+altair
 html5lib
 beautifulsoup4
