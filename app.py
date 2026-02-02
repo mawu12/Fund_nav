@@ -32,7 +32,7 @@ def process_single_fund(code):
     try:
         # 1. Fetch Holdings
         result_data = get_fund_holdings(code)
-        
+
         if not result_data:
             return {
                 '基金代码': code,
@@ -43,25 +43,25 @@ def process_single_fund(code):
                 '重仓股权重': None,
                 'Details': []
             }
-            
+
         # Unpack tuple
         if len(result_data) == 3:
              fund_name, holdings, report_date = result_data
         else:
              fund_name, holdings = result_data
              report_date = "--"
-        
+
         # 2. Fetch Prices
         stock_fetch_codes = [h.get('fetch_code', h['code']) for h in holdings]
         prices = get_realtime_stock_prices(stock_fetch_codes)
-        
+
         # 3. Estimate
         valuation = estimate_nav_change(holdings, prices)
-        
+
         # 4. Fetch History (Last 365 days for flexibility)
         # Cached to avoid heavy network io
         history_df = fetch_history_cached(code, days=365)
-        
+
         return {
             '基金代码': code,
             '基金名称': fund_name,
@@ -90,24 +90,24 @@ def process_funds(code_list):
     total = len(code_list)
     progress_bar = st.progress(0)
     status_text = st.empty()
-    
+
     status_text.text("正在并发获取数据...")
-    
+
     with ThreadPoolExecutor(max_workers=5) as executor:
         # Create map of future -> code (for ordering or debugging if needed, though we just wait for all)
         # To maintain order, we can map futures results back to list
         # Or just append as they complete. Dashboard typically lists in input order, so let's try to keeping order?
         # Actually simplest is map()
-        
+
         futures_map = {executor.submit(process_single_fund, code.strip()): code.strip() for code in code_list if code.strip()}
-        
+
         completed_count = 0
-        
+
         # We want results in same order as input? Not strictly required but nice.
         # But as_completed yields out of order.
         # Let's collect all and then sort or assume order doesn't matter much (user can see by code).
         # Actually, let's just collect.
-        
+
         for future in as_completed(futures_map):
             completed_count += 1
             progress_bar.progress(completed_count / len(futures_map))
@@ -116,14 +116,14 @@ def process_funds(code_list):
                 results.append(data)
             except Exception as e:
                 logging.error(f"Future blocked: {e}")
-                
+
     status_text.empty()
     progress_bar.empty()
-    
+
     # Optional: Sort results to match input order
     # code_to_index = {code.strip(): i for i, code in enumerate(code_list) if code.strip()}
     # results.sort(key=lambda x: code_to_index.get(x['基金代码'], 999))
-    
+
     return results
 
 # Parse input
@@ -139,7 +139,7 @@ dashboard = st.empty()
 def render_dashboard():
     with dashboard.container():
         data = process_funds(codes)
-        
+
         if not data:
             st.error("未找到数据。")
             return
@@ -149,7 +149,7 @@ def render_dashboard():
         for item in data:
             change_val = item['估算涨跌']
             weight_val = item['重仓股权重']
-            
+
             summary_data.append({
                 '基金代码': item['基金代码'],
                 '基金名称': item['基金名称'],
@@ -159,24 +159,24 @@ def render_dashboard():
                 '状态': item['状态'],
                 '更新时间': item.get('更新时间', '')
             })
-            
+
             # Update Intraday History Logic (Restored)
             if item['状态'] == '成功' and item['估算涨跌'] is not None:
                 f_code = item['基金代码']
                 if 'fund_intraday' not in st.session_state:
                     st.session_state['fund_intraday'] = {}
-                
+
                 if f_code not in st.session_state['fund_intraday']:
                     st.session_state['fund_intraday'][f_code] = pd.DataFrame(columns=['Time', 'Estimate'])
-                
+
                 current_time = datetime.now().strftime("%H:%M")
-                
+
                 # Simple append
                 new_row = pd.DataFrame({'Time': [current_time], 'Estimate': [item['估算涨跌']]})
                 st.session_state['fund_intraday'][f_code] = pd.concat([st.session_state['fund_intraday'][f_code], new_row], ignore_index=True)
 
         df_summary = pd.DataFrame(summary_data)
-        
+
         # Style the dataframe
         def color_change(val):
             if isinstance(val, (float, int)):
@@ -188,25 +188,44 @@ def render_dashboard():
 
         # Display Summary
         st.subheader("概览")
-        
+
         # Create a display copy
         df_display = df_summary[['基金代码', '基金名称', '持仓日期', '估算涨跌', '重仓股权重', '状态', '更新时间']]
-        
+
         # Apply Styler
         styler = df_display.style\
             .format({'估算涨跌': "{:+.2f}%", '重仓股权重': "{:.2f}%"}, na_rep="--")\
             .map(color_change, subset=['估算涨跌'])
-            
+
         st.dataframe(styler, use_container_width=True)
-        
+
         # Detail Expander
         st.subheader("详细信息")
-        tabs = st.tabs([f"{d['基金代码']}" for d in data])
-        
+        tabs = st.tabs([f"{d['基金代码']} - {d['基金名称']}" for d in data])
+
         for i, tab in enumerate(tabs):
             with tab:
                 item = data[i]
                 if item['状态'] == '成功':
+                    # 计算当前本金和收益率
+                    current_change = item['估算涨跌'] / 100 if item['估算涨跌'] is not None else 0
+
+                    # 为每个基金初始化或获取独立的本金和收益金额设置
+                    fund_code = item['基金代码']
+                    if 'fund_investments' not in st.session_state:
+                        st.session_state['fund_investments'] = {}
+
+                    # 初始化当前基金的投资设置（如果不存在）
+                    if fund_code not in st.session_state['fund_investments']:
+                        st.session_state['fund_investments'][fund_code] = {
+                            'current_holding': 1000.0,  # 当前账户持有金额
+                            'historical_gain': 0.0       # 历史累计收益
+                        }
+
+                    # 获取当前基金的投资设置
+                    current_holding = st.session_state['fund_investments'][fund_code]['current_holding']
+                    historical_gain = st.session_state['fund_investments'][fund_code]['historical_gain']
+
                     # --- Metrics Row ---
                     c1, c2, c3 = st.columns(3)
                     with c1:
@@ -215,12 +234,81 @@ def render_dashboard():
                          st.metric("前十大持仓占比", f"{item['重仓股权重']:.2f}%")
                     with c3:
                          st.metric("持仓报告期", item['持仓日期'])
-                    
+
+                    # 新增个人投资情况设置行
                     st.divider()
+                    st.subheader("个人投资情况设置")
+
+                    # 为每个基金添加独立的当前持有金额和历史累计收益输入框
+                    col1_input, col2_input = st.columns(2)
+                    with col1_input:
+                        current_holding = st.number_input(
+                            "当前持有金额 (元)",
+                            value=current_holding,
+                            min_value=0.0,
+                            step=100.0,
+                            format="%.2f",
+                            key=f"current_holding_{fund_code}"
+                        )
+
+                    with col2_input:
+                        historical_gain = st.number_input(
+                            "历史累计收益 (元)",
+                            value=historical_gain,
+                            step=10.0,
+                            format="%.2f",
+                            key=f"historical_gain_{fund_code}"
+                        )
+
+                    # 更新session_state中的值
+                    st.session_state['fund_investments'][fund_code]['current_holding'] = current_holding
+                    st.session_state['fund_investments'][fund_code]['historical_gain'] = historical_gain
+
+                    # 重新计算投资指标
+                    # 实际投资本金 = 当前持有金额 - 历史累计收益
+                    actual_principal = current_holding - historical_gain
                     
+                    # 当日收益 = 当前持有金额 * 当日估算涨跌百分比
+                    today_gain = current_holding * current_change
+                    
+                    # 总收益 = 历史累计收益 + 当日收益
+                    total_gain = historical_gain + today_gain
+                    
+                    # 总收益率 = 总收益 / 实际投资本金 * 100%
+                    total_return_rate = (total_gain / actual_principal * 100) if actual_principal > 0 else 0
+                    
+                    # 当日收益率 = 当日收益 / 当前持有金额 * 100%
+                    today_return_rate = (today_gain / current_holding * 100) if current_holding > 0 else 0
+
+                    # 显示计算结果
+                    st.subheader("个人投资情况")
+                    
+                    # 第一行：投资基础信息
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("实际投资本金", f"¥{actual_principal:.2f}")
+                    with col2:
+                        st.metric("当前持有金额", f"¥{current_holding:.2f}")
+                    with col3:
+                        st.metric("历史累计收益", f"¥{historical_gain:.2f}")
+                    
+                    # 第二行：收益情况
+                    col4, col5, col6 = st.columns(3)
+                    with col4:
+                        st.metric("当日收益金额", f"¥{today_gain:.2f}")
+                    with col5:
+                        st.metric("当日收益率", f"{today_return_rate:+.2f}%")
+                    with col6:
+                        st.metric("总收益金额", f"¥{total_gain:.2f}")
+                    
+                    # 第三行：总收益率
+                    st.metric("总收益率", f"{total_return_rate:+.2f}%")
+
+                    st.divider()
+
                     # --- Charts Area (Tabs) ---
                     chart_tab1, chart_tab2 = st.tabs(["📉 实时分时走势", "📅 历史净值趋势"])
-                    
+
                     with chart_tab1:
                          # Intraday Chart
                          f_code = item['基金代码']
@@ -238,28 +326,28 @@ def render_dashboard():
                                  st.info("暂无今日实时数据，请等待刷新...")
                          else:
                              st.info("数据收集中...")
-                    
+
                     with chart_tab2:
                         # Historical Chart
                         if 'History' in item and item['History'] is not None and not item['History'].empty:
                             # Date Range Selector
                             range_map = {'1周': 7, '1月': 30, '3月': 90, '6月': 180, '1年': 365}
                             selected_range = st.radio(
-                                "时间范围", 
-                                list(range_map.keys()), 
-                                index=1, 
+                                "时间范围",
+                                list(range_map.keys()),
+                                index=1,
                                 key=f"range_{item['基金代码']}",
                                 horizontal=True,
                                 label_visibility="collapsed"
                             )
-                            
+
                             days_limit = range_map[selected_range]
                             hist_df = item['History']
-                            
+
                             # Filter
                             start_date = pd.Timestamp.now() - pd.Timedelta(days=days_limit)
                             chart_df = hist_df[hist_df['date'] >= start_date]
-                            
+
                             import altair as alt
                             chart_hist = alt.Chart(chart_df).mark_line().encode(
                                 x=alt.X('date', title='日期', axis=alt.Axis(format='%m-%d')),
@@ -271,12 +359,12 @@ def render_dashboard():
                             st.warning("暂无历史数据")
 
                     st.caption("注意：估值仅基于已披露的前十大重仓股，并已归一化处理。")
-                    
+
                     # --- Holdings Table ---
                     with st.expander("查看重仓股详情", expanded=False):
                         details = item['Details']
                         df_det = pd.DataFrame(details)
-                        
+
                         if not df_det.empty:
                             df_det = df_det[['code', 'name', 'weight', 'price', 'change']]
                             df_det.columns = ['代码', '名称', '权重(%)', '现价', '涨跌(%)']
@@ -285,14 +373,14 @@ def render_dashboard():
                             for col in numeric_cols:
                                 if col in df_det.columns:
                                     df_det[col] = df_det[col].fillna(0.0)
-                            
+
                             # Style highlights
                             def highlight_change(val):
                                 if val is None or not isinstance(val, (int, float)):
                                     return ''
                                 color = '#d63031' if val > 0 else '#00b894' if val < 0 else ''
                                 return f'color: {color}'
-                                
+
                             st.dataframe(
                                 df_det.style.map(highlight_change, subset=['涨跌(%)'])
                                             .format({'权重(%)': "{:.2f}", '现价': "{:.2f}", '涨跌(%)': "{:+.2f}"}),
