@@ -15,7 +15,7 @@ st.markdown("基于前十大重仓股实时估算基金净值涨跌幅。")
 
 # Sidebar
 st.sidebar.header("配置")
-default_funds = "002611, 008164, 006479" # Examples: E-Fund Blue Chip, China AMC Growth, White Liquor, Gold
+default_funds = "024203,019052,025491,019127,020398,025857" # Examples: E-Fund Blue Chip, China AMC Growth, White Liquor, Gold
 fund_input = st.sidebar.text_area("基金代码 (英文逗号分隔)", value=default_funds, height=100)
 auto_refresh = st.sidebar.checkbox("自动刷新 (每60秒)", value=False)
 refresh_btn = st.sidebar.button("立即刷新")
@@ -267,22 +267,22 @@ def render_dashboard():
                     # 重新计算投资指标
                     # 实际投资本金 = 当前持有金额 - 历史累计收益
                     actual_principal = current_holding - historical_gain
-                    
+
                     # 当日收益 = 当前持有金额 * 当日估算涨跌百分比
                     today_gain = current_holding * current_change
-                    
+
                     # 总收益 = 历史累计收益 + 当日收益
                     total_gain = historical_gain + today_gain
-                    
+
                     # 总收益率 = 总收益 / 实际投资本金 * 100%
                     total_return_rate = (total_gain / actual_principal * 100) if actual_principal > 0 else 0
-                    
+
                     # 当日收益率 = 当日收益 / 当前持有金额 * 100%
                     today_return_rate = (today_gain / current_holding * 100) if current_holding > 0 else 0
 
                     # 显示计算结果
                     st.subheader("个人投资情况")
-                    
+
                     # 第一行：投资基础信息
                     col1, col2, col3 = st.columns(3)
                     with col1:
@@ -291,7 +291,7 @@ def render_dashboard():
                         st.metric("当前持有金额", f"¥{current_holding:.2f}")
                     with col3:
                         st.metric("历史累计收益", f"¥{historical_gain:.2f}")
-                    
+
                     # 第二行：收益情况
                     col4, col5, col6 = st.columns(3)
                     with col4:
@@ -300,7 +300,7 @@ def render_dashboard():
                         st.metric("当日收益率", f"{today_return_rate:+.2f}%")
                     with col6:
                         st.metric("总收益金额", f"¥{total_gain:.2f}")
-                    
+
                     # 第三行：总收益率
                     st.metric("总收益率", f"{total_return_rate:+.2f}%")
 
